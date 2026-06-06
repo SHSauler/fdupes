@@ -73,6 +73,8 @@ sqlite3 *db;
 
 struct log_info *loginfo;
 
+char *protect_dir = 0;
+
 typedef enum {
   ORDER_MTIME = 0,
   ORDER_CTIME,
@@ -945,6 +947,60 @@ int relink(char *oldfile, char *newfile)
   return 1;
 }
 
+/* Canonicalize a path using realpath(); caller must free the result. */
+static char *canonicalize_path(const char *path)
+{
+  char *resolved;
+
+  if (path == 0)
+    return 0;
+
+  resolved = realpath(path, 0);
+  return resolved;
+}
+
+/* Return 1 if filepath is located at or below the protected directory,
+   0 otherwise. Both the protected directory and the file path are
+   canonicalized via realpath() before comparison. */
+static int is_under_protect_dir(const char *filepath)
+{
+  char *canon_filepath;
+  char *canon_protectdir;
+  size_t protectlen;
+  int result;
+
+  if (protect_dir == 0 || filepath == 0)
+    return 0;
+
+  canon_filepath = canonicalize_path(filepath);
+  if (canon_filepath == 0)
+    return 0;
+
+  canon_protectdir = canonicalize_path(protect_dir);
+  if (canon_protectdir == 0) {
+    free(canon_filepath);
+    return 0;
+  }
+
+  protectlen = strlen(canon_protectdir);
+  result = 0;
+
+  /* require exact match or filepath being strictly under the protected
+     directory (i.e. preceded by '/'); this avoids /foo/bar matching
+     /foo/barbaz */
+  if (strcmp(canon_filepath, canon_protectdir) == 0) {
+    result = 1;
+  } else if (strncmp(canon_filepath, canon_protectdir, protectlen) == 0
+             && canon_filepath[protectlen] == '/') {
+    result = 1;
+  }
+
+  free(canon_filepath);
+  free(canon_protectdir);
+
+  return result;
+}
+
 void deletefiles(file_t *files, int prompt, FILE *tty, char *logfile)
 {
   int counter;
@@ -1040,10 +1096,30 @@ void deletefiles(file_t *files, int prompt, FILE *tty, char *logfile)
 
       if (prompt) printf("\n");
 
-      if (!prompt) /* preserve only the first file */
+      if (!prompt) /* preserve files, deleting the rest */
       {
-         preserve[1] = 1;
-	 for (x = 2; x <= counter; x++) preserve[x] = 0;
+        int any_selected = 0;
+
+        for (x = 1; x <= counter; x++) preserve[x] = 0;
+
+        if (protect_dir != 0)
+        {
+          for (x = 1; x <= counter; x++)
+          {
+            if (is_under_protect_dir(dupelist[x]->d_name))
+            {
+              preserve[x] = 1;
+              any_selected = 1;
+            }
+          }
+        }
+
+        if (!any_selected)
+        {
+          /* no files in this set are under --protect-dir;
+             fall back to preserving the first file (legacy behaviour) */
+          preserve[1] = 1;
+        }
       }
 
       else /* prompt for files to preserve */
@@ -1332,8 +1408,28 @@ void deletesuccessor(file_t **existing, file_t *duplicate, int matchconfirmed,
   file_t *to_delete;
   char *deletepath;
   char *errorstring;
+  int existing_protected = 0;
+  int duplicate_protected = 0;
 
-  if (comparef(duplicate, *existing) >= 0)
+  if (protect_dir != 0)
+  {
+    existing_protected = is_under_protect_dir((*existing)->d_name);
+    duplicate_protected = is_under_protect_dir(duplicate->d_name);
+  }
+
+  if (existing_protected && !duplicate_protected)
+  {
+    to_keep = *existing;
+    to_delete = duplicate;
+  }
+  else if (duplicate_protected && !existing_protected)
+  {
+    to_keep = duplicate;
+    to_delete = *existing;
+
+    *existing = duplicate;
+  }
+  else if (comparef(duplicate, *existing) >= 0)
   {
     to_keep = *existing;
     to_delete = duplicate;
@@ -1467,6 +1563,10 @@ void help_text()
   printf("                         change time (BY='ctime'), or filename (BY='name')\n");
   printf(" -i --reverse            reverse order while sorting\n");
   printf(" -l --log=LOGFILE        log file deletion choices to LOGFILE\n");
+  printf(" -X --protect-dir=PATH   with --delete and --noprompt/--immediate, never\n");
+  printf("                         delete files located at or below PATH; PATH and\n");
+  printf("                         each candidate file are resolved via realpath()\n");
+  printf("                         before comparison\n");
   printf(" -v --version            display fdupes version\n");
   printf(" -h --help               display this help message\n\n");
 #ifndef HAVE_GETOPT_H
@@ -1554,6 +1654,7 @@ int main(int argc, char **argv) {
     { "log", 1, 0, 'l' },
     { "deferconfirmation", 0, 0, 'D' },
     { "cache", 0, 0, 'c' },
+    { "protect-dir", 1, 0, 'X' },
     { 0, 0, 0, 0 }
   };
 #define GETOPT getopt_long
@@ -1567,7 +1668,7 @@ int main(int argc, char **argv) {
 
   oldargv = cloneargs(argc, argv);
 
-  while ((opt = GETOPT(argc, argv, "frRq1StsHG:L:nAdPvhNImMpo:il:Dcx:"
+  while ((opt = GETOPT(argc, argv, "frRq1StsHG:L:nAdPvhNImMpo:il:Dcx:X:"
 #ifdef HAVE_GETOPT_H
           , long_options, NULL
 #endif
@@ -1674,6 +1775,22 @@ int main(int argc, char **argv) {
     case 'c':
       SETFLAG(flags, F_CACHESIGNATURES);
       break;
+    case 'X':
+    {
+      char *resolved;
+
+      resolved = realpath(optarg, 0);
+      if (resolved == 0)
+      {
+        errormsg("--protect-dir: cannot resolve path '%s': %s\n", optarg, strerror(errno));
+        exit(1);
+      }
+
+      free(protect_dir);
+      protect_dir = resolved;
+      SETFLAG(flags, F_PROTECTDIR);
+      break;
+    }
     case 'x':
       if (strcmp("cache.readonly", optarg) == 0)
         SETFLAG(flags, F_READONLYCACHE);
