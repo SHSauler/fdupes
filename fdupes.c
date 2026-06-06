@@ -1117,7 +1117,7 @@ void deletefiles(file_t *files, int prompt, FILE *tty, char *logfile)
         if (!any_selected)
         {
           /* no files in this set are under --protect-dir;
-             fall back to preserving the first file (legacy behaviour) */
+             fall back to preserving the first file (legacy behavior) */
           preserve[1] = 1;
         }
       }
@@ -1870,6 +1870,13 @@ int main(int argc, char **argv) {
   if (ISFLAG(flags, F_DEFERCONFIRMATION) && (!ISFLAG(flags, F_DELETEFILES) || ISFLAG(flags, F_NOPROMPT)))
   {
     errormsg("--deferconfirmation only works with interactive deletion modes\n");
+    exit(1);
+  }
+
+  if (ISFLAG(flags, F_SIMULATE) && ISFLAG(flags, F_DELETEFILES)
+      && !ISFLAG(flags, F_NOPROMPT) && !ISFLAG(flags, F_IMMEDIATE))
+  {
+    errormsg("--simulate/--dry-run requires --noprompt or --immediate with --delete\n");
     exit(1);
   }
 
