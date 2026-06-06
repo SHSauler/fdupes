@@ -69,6 +69,10 @@ Usage: fdupes [options] DIRECTORY...
                          delete files located at or below PATH; PATH and
                          each candidate file are resolved via realpath()
                          before comparison
+    --simulate           with --delete, print the [+] and [-] decisions
+    --dry-run            that would be made but do not actually unlink
+                         any files; no cache rows or log entries are
+                         written for the skipped deletions
  -v --version            display fdupes version
  -h --help               display this help message
 

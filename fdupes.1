@@ -155,6 +155,22 @@ the first file in the set (according to the current sort order) is
 preserved as usual. The option has no effect without
 .BR --delete .
 .TP
+.B --simulate
+.TP
+.B --dry-run
+When used together with
+.BR --delete ,
+print the
+.B [+]
+and
+.B [-]
+decisions that would be made for each duplicate set, but do not
+actually unlink any files. The cache database is not updated for
+the skipped deletions, and the log file (if any) will not record
+any "deleted" entries. The two options are aliases and have no
+effect without
+.BR --delete .
+.TP
 .B -v --version
 Display fdupes version.
 .TP

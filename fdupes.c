@@ -1247,7 +1247,10 @@ void deletefiles(file_t *files, int prompt, FILE *tty, char *logfile)
     }
 
     if (ismatch) {
-      if (removeifnotchanged(dupelist[x], &errorstring) == 0) {
+      if (ISFLAG(flags, F_SIMULATE)) {
+        printf("   [-] %s  (simulated; not deleted)\n", dupelist[x]->d_name);
+      }
+      else if (removeifnotchanged(dupelist[x], &errorstring) == 0) {
         printf("   [-] %s\n", dupelist[x]->d_name);
 
 #ifndef NO_SQLITE
@@ -1454,7 +1457,10 @@ void deletesuccessor(file_t **existing, file_t *duplicate, int matchconfirmed,
 
   if (matchconfirmed)
   {
-    if (removeifnotchanged(to_delete, &errorstring) == 0) {
+    if (ISFLAG(flags, F_SIMULATE)) {
+      printf("   [-] %s  (simulated; not deleted)\n", to_delete->d_name);
+    }
+    else if (removeifnotchanged(to_delete, &errorstring) == 0) {
       printf("   [-] %s\n", to_delete->d_name);
 
 #ifndef NO_SQLITE
@@ -1567,6 +1573,10 @@ void help_text()
   printf("                         delete files located at or below PATH; PATH and\n");
   printf("                         each candidate file are resolved via realpath()\n");
   printf("                         before comparison\n");
+  printf("    --simulate           with --delete, print the [+] and [-] decisions\n");
+  printf("    --dry-run            that would be made but do not actually unlink\n");
+  printf("                         any files; no cache rows or log entries are\n");
+  printf("                         written for the skipped deletions\n");
   printf(" -v --version            display fdupes version\n");
   printf(" -h --help               display this help message\n\n");
 #ifndef HAVE_GETOPT_H
@@ -1655,6 +1665,8 @@ int main(int argc, char **argv) {
     { "deferconfirmation", 0, 0, 'D' },
     { "cache", 0, 0, 'c' },
     { "protect-dir", 1, 0, 'X' },
+    { "simulate", 0, 0, 'Y' },
+    { "dry-run", 0, 0, 'Y' },
     { 0, 0, 0, 0 }
   };
 #define GETOPT getopt_long
@@ -1668,7 +1680,7 @@ int main(int argc, char **argv) {
 
   oldargv = cloneargs(argc, argv);
 
-  while ((opt = GETOPT(argc, argv, "frRq1StsHG:L:nAdPvhNImMpo:il:Dcx:X:"
+  while ((opt = GETOPT(argc, argv, "frRq1StsHG:L:nAdPvhNImMpo:il:Dcx:X:Y"
 #ifdef HAVE_GETOPT_H
           , long_options, NULL
 #endif
@@ -1791,6 +1803,9 @@ int main(int argc, char **argv) {
       SETFLAG(flags, F_PROTECTDIR);
       break;
     }
+    case 'Y':
+      SETFLAG(flags, F_SIMULATE);
+      break;
     case 'x':
       if (strcmp("cache.readonly", optarg) == 0)
         SETFLAG(flags, F_READONLYCACHE);
@@ -2052,6 +2067,11 @@ int main(int argc, char **argv) {
 
   if (ISFLAG(flags, F_DELETEFILES))
   {
+    if (ISFLAG(flags, F_SIMULATE))
+    {
+      fprintf(stderr, "\n*** --simulate/--dry-run: no files will be deleted ***\n\n");
+    }
+
     if (ISFLAG(flags, F_NOPROMPT) || ISFLAG(flags, F_IMMEDIATE))
     {
       deletefiles(files, 0, 0, logfile);
